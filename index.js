@@ -98,6 +98,105 @@ function deleteEntry(meta) {
   meta.entryEl.querySelector(".delete_entry_button")?.click();
 }
 
+const KILL_SWITCH_SELECTOR = '[name="entryKillSwitch"], .killSwitch';
+
+function findKillSwitchControl(entryEl) {
+  const direct = entryEl.querySelector(
+    `.inline-drawer-header ${KILL_SWITCH_SELECTOR}, ${KILL_SWITCH_SELECTOR}`,
+  );
+  if (direct instanceof HTMLElement) {
+    return direct;
+  }
+
+  const icon = entryEl.querySelector(
+    ".inline-drawer-header i.fa-toggle-on, .inline-drawer-header i.fa-toggle-off, i.fa-toggle-on, i.fa-toggle-off",
+  );
+  if (icon instanceof HTMLElement) {
+    return (
+      icon.closest("button")
+      || icon.closest("[role='button']")
+      || icon.closest(".menu_button")
+      || icon
+    );
+  }
+
+  const fallback = entryEl.querySelector(
+    ".disable_entry_button, .entry_kill_switch, [data-field='disable'], [data-property='disable']",
+  );
+  return fallback instanceof HTMLElement ? fallback : null;
+}
+
+function findDisableInput(entryEl) {
+  const selectors = [
+    'input[name="disable"]',
+    'input[data-property="disable"]',
+    '.disable_entry input[type="checkbox"]',
+  ];
+  for (const selector of selectors) {
+    const el = entryEl.querySelector(selector);
+    if (el instanceof HTMLInputElement) return el;
+  }
+  return null;
+}
+
+function readDisableState(meta) {
+  const disableInput = findDisableInput(meta.entryEl);
+  if (disableInput) {
+    if (disableInput.type === "checkbox" || disableInput.type === "radio") {
+      return !!disableInput.checked;
+    }
+    const raw = String(disableInput.value || "").trim().toLowerCase();
+    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+  }
+
+  const killSwitch = findKillSwitchControl(meta.entryEl);
+  if (killSwitch) {
+    if (killSwitch.classList.contains("fa-toggle-off")) return true;
+    if (killSwitch.classList.contains("fa-toggle-on")) return false;
+  }
+  return null;
+}
+
+function setDisableState(meta, disabled) {
+  const disableInput = findDisableInput(meta.entryEl);
+  if (disableInput) {
+    if (disableInput.type === "checkbox" || disableInput.type === "radio") {
+      if (!!disableInput.checked === !!disabled) return false;
+      disableInput.checked = !!disabled;
+    } else {
+      const current = String(disableInput.value || "").trim().toLowerCase();
+      let next = disabled ? "1" : "0";
+      if (current === "true" || current === "false") {
+        next = disabled ? "true" : "false";
+      }
+      if (current === "on" || current === "off") {
+        next = disabled ? "on" : "off";
+      }
+      if (current === next) return false;
+      disableInput.value = next;
+    }
+    disableInput.dispatchEvent(new Event("input", { bubbles: true }));
+    disableInput.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+
+  const toggleBtn = findKillSwitchControl(meta.entryEl);
+  if (!(toggleBtn instanceof HTMLElement)) return false;
+  const currentDisabled = readDisableState(meta);
+  if (currentDisabled !== null && currentDisabled === !!disabled) return false;
+  toggleBtn.click();
+  return true;
+}
+
+function readGroupEnabledFromEntries(entries) {
+  if (!entries.length) return null;
+  const knownStates = entries
+    .map((meta) => readDisableState(meta))
+    .filter((state) => state !== null);
+  if (!knownStates.length) return null;
+  return knownStates.some((isDisabled) => !isDisabled);
+}
+
 function collectMetas() {
   const metas = getEntryNodes().map(getEntryMeta);
   for (const meta of metas) {
@@ -157,6 +256,20 @@ function moveGroup(bookKey, groupName, delta) {
   bs.groupOrder = order;
   saveSettings();
   reloadWorldInfoPage(REBUILD_REASONS.GROUP_MOVE);
+}
+
+function applyGroupEnableState(bookKey, groupName, enabled) {
+  const entries = runtime.currentGroupEntries.get(groupName) || collectMetas().filter((m) => m.group === groupName);
+  let changed = false;
+  for (const meta of entries) {
+    if (setDisableState(meta, !enabled)) changed = true;
+  }
+  setGroupEnabled(bookKey, groupName, enabled);
+  if (changed) {
+    reloadWorldInfoPage(REBUILD_REASONS.GROUP_TOGGLE);
+  } else {
+    requestRebuild(REBUILD_REASONS.GROUP_TOGGLE);
+  }
 }
 
 async function renameGroupFlow(groupName) {
@@ -294,8 +407,7 @@ function applyGroupBlockLayout(list, orderedGroups) {
     },
     onToggleEnabled: (groupName, enabled) => {
       const bookKey = getBookKeyFromUI();
-      setGroupEnabled(bookKey, groupName, enabled);
-      requestRebuild(REBUILD_REASONS.GROUP_TOGGLE);
+      applyGroupEnableState(bookKey, groupName, enabled);
     },
     onMoveUp: (groupName) => moveGroup(getBookKeyFromUI(), groupName, -1),
     onMoveDown: (groupName) => moveGroup(getBookKeyFromUI(), groupName, +1),
@@ -362,13 +474,23 @@ function rebuildGroupsUI(reasons = [REBUILD_REASONS.OBSERVER]) {
     const metasAll = collectMetas();
     const groupNames = Array.from(new Set(metasAll.map((m) => m.group).filter(Boolean)));
     const normalizedOrder = normalizeGroupOrder(bookKey, groupNames);
+    const metasByGroup = new Map();
+    for (const meta of metasAll) {
+      if (!meta.group) continue;
+      if (!metasByGroup.has(meta.group)) metasByGroup.set(meta.group, []);
+      metasByGroup.get(meta.group).push(meta);
+    }
+    const groupEnabledFromEntries = new Map();
+    for (const name of normalizedOrder) {
+      groupEnabledFromEntries.set(name, readGroupEnabledFromEntries(metasByGroup.get(name) || []));
+    }
     const sortConfig = getSortConfig(/** @type {HTMLSelectElement | null} */ (document.querySelector(SELECTORS.sortSelect)));
 
     const plan = computeRenderPlan(
       metasAll,
       normalizedOrder,
       sortConfig,
-      (groupName) => isGroupEnabled(bookKey, groupName),
+      (groupName) => groupEnabledFromEntries.get(groupName) ?? isGroupEnabled(bookKey, groupName),
       (groupName) => isGroupCollapsed(bookKey, groupName),
     );
 
