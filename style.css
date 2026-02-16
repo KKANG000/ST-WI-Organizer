@@ -1,0 +1,361 @@
+/* ST-WI-Organizer */
+
+:root {
+  --wiog-surface: var(--SmartThemeBlurTintColor, rgba(20, 20, 20, 0.96));
+  --wiog-surface-soft: rgba(255, 255, 255, 0.04);
+  --wiog-border: var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.14));
+  --wiog-text: var(--SmartThemeBodyColor, #f2f2f2);
+  --wiog-muted: var(--SmartThemeBodyColor, #f2f2f2);
+  --wiog-focus: var(--SmartThemeQuoteColor, #66a9ff);
+}
+
+.wiog-toolbar-btn {
+  margin-left: 6px;
+}
+
+.wiog-group-block {
+  margin: 6px 0;
+  color: var(--wiog-text);
+  border: 2px solid currentColor;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.015);
+  overflow: hidden;
+}
+
+.wiog-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--wiog-border);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--wiog-text);
+}
+
+.wiog-group-header.wiog-disabled {
+  opacity: 0.65;
+}
+
+.wiog-enable {
+  display: inline-flex;
+  align-items: center;
+  user-select: none;
+  cursor: pointer;
+  position: relative;
+}
+
+.wiog-enable input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+}
+
+.wiog-switch {
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid var(--wiog-border);
+  background: rgba(255, 255, 255, 0.12);
+  position: relative;
+  transition: background-color 120ms ease;
+}
+
+.wiog-switch::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--wiog-text);
+  transition: transform 120ms ease;
+}
+
+.wiog-enable input[type="checkbox"]:checked + .wiog-switch {
+  background: rgba(102, 169, 255, 0.55);
+}
+
+.wiog-enable input[type="checkbox"]:checked + .wiog-switch::after {
+  transform: translateX(14px);
+}
+
+.wiog-enable input[type="checkbox"]:focus-visible + .wiog-switch {
+  outline: 2px solid var(--wiog-focus);
+  outline-offset: 1px;
+}
+
+.wiog-title {
+  display: inline-flex;
+  align-items: baseline;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+}
+
+.wiog-name {
+  font-weight: 800;
+  font-size: 1.04em;
+  letter-spacing: 0.01em;
+  color: var(--wiog-text);
+  text-shadow: 0 0 1px currentColor;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiog-count {
+  color: var(--wiog-muted);
+  opacity: 0.72;
+  font-size: 0.9em;
+}
+
+.wiog-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.wiog-actions .menu_button,
+.wiog-collapse-btn {
+  min-width: 30px;
+  min-height: 30px;
+}
+
+.wiog-group-header button:focus-visible,
+.wiog-group-header input:focus-visible,
+.wiog-modal button:focus-visible,
+.wiog-modal input:focus-visible {
+  outline: 2px solid var(--wiog-focus);
+  outline-offset: 1px;
+}
+
+.wiog-modal-root {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  pointer-events: none;
+}
+
+.wiog-modal-root:empty {
+  display: none;
+}
+
+.wiog-modal {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+
+.wiog-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.56);
+  z-index: 0;
+}
+
+.wiog-modal-card {
+  position: absolute;
+  top: 7%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  width: min(960px, calc(100vw - 18px));
+  max-height: 86vh;
+  overflow: hidden;
+  border: 1px solid var(--wiog-border);
+  border-radius: 14px;
+  background: var(--wiog-surface);
+  color: var(--wiog-text);
+  display: flex;
+  flex-direction: column;
+}
+
+.wiog-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--wiog-border);
+}
+
+.wiog-modal-title {
+  font-size: 1.05em;
+  font-weight: 700;
+}
+
+.wiog-modal-head-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.wiog-modal-head-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.wiog-modal-head-label {
+  font-size: 0.9em;
+  opacity: 0.82;
+}
+
+.wiog-group-picker {
+  min-width: 170px;
+  max-width: 260px;
+}
+
+.wiog-group-create-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+}
+
+.wiog-modal-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 10px 12px;
+  overflow: auto;
+}
+
+.wiog-modal-section {
+  border: 1px solid var(--wiog-border);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wiog-modal-section-title {
+  font-weight: 700;
+}
+
+.wiog-modal-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.wiog-modal-search {
+  min-width: 0;
+  min-height: 30px;
+}
+
+.wiog-modal-batch {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.wiog-modal-batch .menu_button {
+  min-height: 30px;
+  min-width: 40px;
+}
+
+.wiog-modal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 54vh;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.wiog-entry-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--wiog-border);
+  border-radius: 10px;
+  background: var(--wiog-surface-soft);
+}
+
+.wiog-entry-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiog-badge {
+  font-size: 0.85em;
+  color: var(--wiog-muted);
+  opacity: 0.85;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--wiog-border);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.wiog-badge-none {
+  opacity: 0.8;
+}
+
+.wiog-modal-footer {
+  padding: 10px 12px;
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 1px solid var(--wiog-border);
+}
+
+.wiog-comment-source {
+  display: none !important;
+}
+
+.wiog-comment-wrap {
+  position: static;
+}
+
+.wiog-comment-proxy {
+  position: static;
+  width: 100%;
+  min-height: 30px;
+  margin: 0;
+  resize: none;
+  overflow: hidden;
+}
+
+.wiog-group-block .world_entry {
+  margin-top: 0;
+  border-radius: 0;
+}
+
+.wiog-group-block .world_entry:last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 900px) {
+  .wiog-modal-body {
+    grid-template-columns: 1fr;
+  }
+
+  .wiog-modal-list {
+    max-height: 32vh;
+  }
+
+  .wiog-group-header {
+    gap: 4px;
+    padding: 5px 6px;
+  }
+
+  .wiog-modal-head-controls {
+    flex-wrap: wrap;
+  }
+}
