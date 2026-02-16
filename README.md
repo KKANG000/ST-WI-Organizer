@@ -1,44 +1,54 @@
 # ST-WI-Organizer
 
-Version: `1.0.0`
+Version: `1.1.0`
 
-SillyTavern World Info 엔트리를 `::Group:: Title` 접두 규칙으로 그룹화해 관리하는 확장입니다.
+SillyTavern World Info ?�트리�? `::Group:: Title` ?�두 규칙?�로 그룹?�해 관리하???�장?�니??
 
-## 핵심 기능
+## ?�심 기능
 
-- 그룹 헤더 기반 정리:
-  - 접기/펼치기
-  - 그룹 활성/비활성 슬라이드 토글
-  - 그룹 순서 이동(위/아래)
-  - 그룹명 변경
-  - 그룹 삭제(해제/엔트리 삭제)
+- 그룹 ?�더 기반 ?�리:
+  - ?�기/?�치�?
+  - 그룹 ?�성/비활???�라?�드 ?��?
+  - 그룹 ?�서 ?�동(???�래)
+  - 그룹�?변�?
+  - 그룹 ??��(?�제/?�트�???��)
 - `Group Editor` 모달:
-  - 그룹별 엔트리 추가/제거
-  - 검색
-  - 일괄 선택(전체/해제/반전)
-  - 그룹 전환/신규 그룹 생성
-- 타이틀 편집 프록시:
-  - 그룹 엔트리 편집 시 `::group::` 접두를 사용자에게 노출하지 않음
-- 안정화:
-  - 단일 리빌드 파이프라인(`requestRebuild`)
-  - 내부 주입 DOM 변경을 `MutationObserver` 리빌드 트리거에서 제외
-  - 그룹 조작 후 월드인포 페이지 재로드로 상태 동기화 강화
+  - 그룹�??�트�?추�?/?�거
+  - 검??
+  - ?�괄 ?�택(?�체/?�제/반전)
+  - 그룹 ?�환/?�규 그룹 ?�성
+- ?�?��? ?�집 ?�록??
+  - 그룹 ?�트�??�집 ??`::group::` ?�두�??�용?�에�??�출?��? ?�음
+- ?�정??
+  - ?�일 리빌???�이?�라??`requestRebuild`)
+  - ?��? 주입 DOM 변경을 `MutationObserver` 리빌???�리거에???�외
+  - 그룹 조작 ???�드?�포 ?�이지 ?�로?�로 ?�태 ?�기??강화
 
-## 사용 방법
+## ?�용 방법
 
-1. 월드인포 상단 툴바의 `Group Editor` 버튼 클릭
-2. 그룹 생성 또는 기존 그룹 선택
-3. Add/Remove 리스트에서 엔트리 선택 후 `Apply`
-4. 그룹 헤더에서 정렬/이름변경/삭제/접기/활성 토글 관리
+1. ?�드?�포 ?�단 ?�바??`Group Editor` 버튼 ?�릭
+2. 그룹 ?�성 ?�는 기존 그룹 ?�택
+3. Add/Remove 리스?�에???�트�??�택 ??`Apply`
+4. 그룹 ?�더?�서 ?�렬/?�름변�???��/?�기/?�성 ?��? 관�?
 
-## 데이터 저장 방식
+## ?�이???�??방식
 
-- 그룹 메타데이터는 엔트리 `comment`에 저장됩니다.
-- 포맷: `::GroupName:: Entry Title`
-- 추가 스키마 변경 없이, 기존 월드인포 데이터와 호환됩니다.
+- 그룹 메�??�이?�는 ?�트�?`comment`???�?�됩?�다.
+- ?�맷: `::GroupName:: Entry Title`
+- 추�? ?�키�?변�??�이, 기존 ?�드?�포 ?�이?��? ?�환?�니??
 
-## 확장 미설치 사용자와의 호환
+## ?�장 미설�??�용?��????�환
 
-- 미설치 사용자가 그룹 메타데이터가 포함된 로어북을 열어도 오류는 발생하지 않습니다.
-- 다만 그룹 UI는 없으므로 `::Group::` 접두 텍스트가 그대로 보일 수 있습니다.
-- 접두를 수정/삭제하면 이후 설치 사용자 환경에서 그룹 인식이 달라질 수 있습니다.
+- 미설�??�용?��? 그룹 메�??�이?��? ?�함??로어북을 ?�어???�류??발생?��? ?�습?�다.
+- ?�만 그룹 UI???�으므�?`::Group::` ?�두 ?�스?��? 그�?�?보일 ???�습?�다.
+- ?�두�??�정/??��?�면 ?�후 ?�치 ?�용???�경?�서 그룹 ?�식???�라�????�습?�다.
+
+
+## Update Log
+
+### v1.1.0 (2026-02-16)
+
+- Fixed: Group Editor now reads and manages entries from the entire lorebook, not only the current page.
+- Fixed: Rename/Ungroup/Delete group actions now apply across all lorebook entries.
+- Fixed: Reload behavior now prefers `reloadEditor(...)` to improve consistency after group operations.
+- Added: Auto-increase `entries per page` (`WI_PerPage`) to `500` when grouped entries are detected.

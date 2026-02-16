@@ -5,6 +5,14 @@
 
 import { event_types } from "../../../../script.js";
 import {
+  deleteWIOriginalDataValue,
+  loadWorldInfo,
+  reloadEditor,
+  saveWorldInfo,
+  setWIOriginalDataValue,
+} from "../../../../scripts/world-info.js";
+import { accountStorage } from "../../../../scripts/util/AccountStorage.js";
+import {
   CSS,
   OBSERVER_OPTIONS,
   REBUILD_DEBOUNCE_MS,
@@ -45,7 +53,10 @@ import {
   makeEventListenerLast,
   registerEventListener,
 } from "./src/adapters/tavern-helper.js";
-import { getLALibInfo, runWithLALibBatch } from "./src/adapters/lalib.js";
+import { getLALibInfo } from "./src/adapters/lalib.js";
+
+const WI_PER_PAGE_KEY = "WI_PerPage";
+const GROUPED_MIN_PER_PAGE = 500;
 
 const runtime = {
   observer: /** @type {MutationObserver | null} */ (null),
@@ -63,6 +74,18 @@ const runtime = {
   },
 };
 
+function ensureGroupedPerPage(shouldElevate) {
+  if (!shouldElevate) return false;
+
+  const rawCurrent = accountStorage.getItem(WI_PER_PAGE_KEY);
+  const current = Number(rawCurrent);
+  const normalizedCurrent = Number.isFinite(current) && current > 0 ? current : 25;
+  if (normalizedCurrent >= GROUPED_MIN_PER_PAGE) return false;
+
+  accountStorage.setItem(WI_PER_PAGE_KEY, String(GROUPED_MIN_PER_PAGE));
+  return true;
+}
+
 function clearRuntimeListeners() {
   const fns = runtime.cleanupFns.splice(0, runtime.cleanupFns.length);
   for (const fn of fns) {
@@ -72,30 +95,6 @@ function clearRuntimeListeners() {
       // no-op
     }
   }
-}
-
-function dispatchCommentChanged(commentEl) {
-  commentEl.dispatchEvent(new Event("input", { bubbles: true }));
-  commentEl.dispatchEvent(new Event("change", { bubbles: true }));
-}
-
-function updateEntryGroup(meta, groupName) {
-  if (!meta.commentEl) return;
-  const title = meta.title || parseGroupPrefix(meta.commentEl.value).title || meta.commentEl.value || "";
-  meta.commentEl.value = composeComment(groupName, title);
-  dispatchCommentChanged(meta.commentEl);
-}
-
-function ungroupEntry(meta, expectedGroup = null) {
-  if (!meta.commentEl) return;
-  const parsed = parseGroupPrefix(meta.commentEl.value);
-  if (expectedGroup && parsed.group !== expectedGroup) return;
-  meta.commentEl.value = String(parsed.title || "").trim();
-  dispatchCommentChanged(meta.commentEl);
-}
-
-function deleteEntry(meta) {
-  meta.entryEl.querySelector(".delete_entry_button")?.click();
 }
 
 const KILL_SWITCH_SELECTOR = '[name="entryKillSwitch"], .killSwitch';
@@ -205,6 +204,170 @@ function collectMetas() {
   return metas;
 }
 
+function readBookEntryComment(entry) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return "";
+  return String(entry.comment ?? entry.title ?? "");
+}
+
+function setBookEntryComment(data, uid, entry, nextComment) {
+  const currentComment = readBookEntryComment(entry);
+  if (currentComment === nextComment) return false;
+  entry.comment = nextComment;
+  const uidNumber = Number(entry?.uid ?? uid);
+  if (Number.isFinite(uidNumber)) {
+    setWIOriginalDataValue(data, uidNumber, "comment", nextComment);
+  }
+  return true;
+}
+
+function toBookMeta(entry, fallbackUid = "") {
+  const uid = String(entry?.uid ?? fallbackUid ?? "");
+  const rawComment = readBookEntryComment(entry);
+  const parsed = parseGroupPrefix(rawComment);
+  const keyTitle = Array.isArray(entry?.key) ? String(entry.key[0] || "").trim() : "";
+  return {
+    uid,
+    entryEl: /** @type {any} */ (null),
+    commentEl: null,
+    rawComment,
+    group: parsed.group,
+    title: parsed.title || keyTitle || rawComment,
+  };
+}
+
+async function collectBookMetas(bookKey) {
+  const metasOnPage = collectMetas();
+  if (!bookKey || bookKey === "__unknown__") return metasOnPage;
+  try {
+    const data = await loadWorldInfo(bookKey);
+    if (!data || typeof data !== "object" || !data.entries) return metasOnPage;
+
+    const rows = Object.entries(data.entries)
+      .map(([key, entry]) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+        const uid = String(entry.uid ?? key);
+        const displayIndex = Number(entry.displayIndex);
+        const uidNumber = Number(uid);
+        return {
+          meta: toBookMeta(entry, key),
+          displayIndex: Number.isFinite(displayIndex) ? displayIndex : Number.MAX_SAFE_INTEGER,
+          uidNumber: Number.isFinite(uidNumber) ? uidNumber : Number.MAX_SAFE_INTEGER,
+          uid,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        const byIndex = a.displayIndex - b.displayIndex;
+        if (byIndex !== 0) return byIndex;
+        const byUid = a.uidNumber - b.uidNumber;
+        if (byUid !== 0) return byUid;
+        return a.uid.localeCompare(b.uid);
+      });
+
+    const domByUid = new Map(metasOnPage.map((m) => [String(m.uid), m]));
+    return rows.map((row) => domByUid.get(String(row.meta.uid)) || row.meta);
+  } catch (error) {
+    console.warn("[WorldInfo Organizer] collectBookMetas fallback to current page", error);
+    return metasOnPage;
+  }
+}
+
+async function applyUidGroupChanges(bookKey, groupName, toAdd, toRemove) {
+  if (!bookKey || bookKey === "__unknown__") return false;
+  const data = await loadWorldInfo(bookKey);
+  if (!data || typeof data !== "object" || !data.entries) return false;
+
+  const byUid = new Map();
+  for (const [key, entry] of Object.entries(data.entries)) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    byUid.set(String(entry.uid ?? key), entry);
+  }
+
+  let changed = false;
+  const addSet = new Set((toAdd || []).map((uid) => String(uid)));
+  const removeSet = new Set((toRemove || []).map((uid) => String(uid)));
+
+  for (const uid of addSet) {
+    const entry = byUid.get(uid);
+    if (!entry) continue;
+    const parsed = parseGroupPrefix(readBookEntryComment(entry));
+    const title = parsed.title || readBookEntryComment(entry);
+    if (setBookEntryComment(data, uid, entry, composeComment(groupName, title))) changed = true;
+  }
+
+  for (const uid of removeSet) {
+    const entry = byUid.get(uid);
+    if (!entry) continue;
+    const parsed = parseGroupPrefix(readBookEntryComment(entry));
+    if (parsed.group !== groupName) continue;
+    if (setBookEntryComment(data, uid, entry, String(parsed.title || "").trim())) changed = true;
+  }
+
+  if (!changed) return false;
+  await saveWorldInfo(bookKey, data, true);
+  return true;
+}
+
+async function renameGroupInBook(bookKey, oldGroupName, newGroupName) {
+  if (!bookKey || bookKey === "__unknown__") return false;
+  const data = await loadWorldInfo(bookKey);
+  if (!data || typeof data !== "object" || !data.entries) return false;
+
+  let changed = false;
+  for (const [key, entry] of Object.entries(data.entries)) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const uid = String(entry.uid ?? key);
+    const parsed = parseGroupPrefix(readBookEntryComment(entry));
+    if (parsed.group !== oldGroupName) continue;
+    const nextComment = composeComment(newGroupName, parsed.title || readBookEntryComment(entry));
+    if (setBookEntryComment(data, uid, entry, nextComment)) changed = true;
+  }
+
+  if (!changed) return false;
+  await saveWorldInfo(bookKey, data, true);
+  return true;
+}
+
+async function ungroupBookEntries(bookKey, groupName) {
+  if (!bookKey || bookKey === "__unknown__") return false;
+  const data = await loadWorldInfo(bookKey);
+  if (!data || typeof data !== "object" || !data.entries) return false;
+
+  let changed = false;
+  for (const [key, entry] of Object.entries(data.entries)) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const uid = String(entry.uid ?? key);
+    const parsed = parseGroupPrefix(readBookEntryComment(entry));
+    if (parsed.group !== groupName) continue;
+    if (setBookEntryComment(data, uid, entry, String(parsed.title || "").trim())) changed = true;
+  }
+
+  if (!changed) return false;
+  await saveWorldInfo(bookKey, data, true);
+  return true;
+}
+
+async function deleteBookEntriesInGroup(bookKey, groupName) {
+  if (!bookKey || bookKey === "__unknown__") return false;
+  const data = await loadWorldInfo(bookKey);
+  if (!data || typeof data !== "object" || !data.entries) return false;
+
+  let changed = false;
+  for (const [key, entry] of Object.entries(data.entries)) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const uid = String(entry.uid ?? key);
+    const parsed = parseGroupPrefix(readBookEntryComment(entry));
+    if (parsed.group !== groupName) continue;
+    delete data.entries[key];
+    deleteWIOriginalDataValue(data, uid);
+    changed = true;
+  }
+
+  if (!changed) return false;
+  await saveWorldInfo(bookKey, data, true);
+  return true;
+}
+
 function logRebuildSummary(reasons, elapsedMs, skipped) {
   const debug = getDebugSettings();
   if (!debug.enabled || !debug.logRebuilds) return;
@@ -237,9 +400,15 @@ function requestRebuild(reason) {
 }
 
 function reloadWorldInfoPage(reason = REBUILD_REASONS.REFRESH) {
-  const refreshBtn = document.querySelector(SELECTORS.refreshBtn);
-  if (refreshBtn instanceof HTMLElement) {
-    refreshBtn.click();
+  const bookKey = getBookKeyFromUI();
+  if (bookKey && bookKey !== "__unknown__") {
+    void reloadEditor(bookKey, true).catch(() => {
+      const refreshBtn = document.querySelector(SELECTORS.refreshBtn);
+      if (refreshBtn instanceof HTMLElement) refreshBtn.click();
+    });
+  } else {
+    const refreshBtn = document.querySelector(SELECTORS.refreshBtn);
+    if (refreshBtn instanceof HTMLElement) refreshBtn.click();
   }
   requestRebuild(reason);
 }
@@ -277,12 +446,7 @@ async function renameGroupFlow(groupName) {
   const next = await askGroupName("Rename Group", `Rename "${groupName}" to:`, groupName);
   if (!next || next === groupName) return;
 
-  const metas = collectMetas().filter((m) => m.group === groupName);
-  for (const meta of metas) {
-    if (!meta.commentEl) continue;
-    meta.commentEl.value = composeComment(next, meta.title || "");
-    dispatchCommentChanged(meta.commentEl);
-  }
+  await renameGroupInBook(bookKey, groupName, next);
 
   migrateGroupSettingsName(bookKey, groupName, next);
   reloadWorldInfoPage(REBUILD_REASONS.GROUP_RENAME);
@@ -293,12 +457,11 @@ async function deleteGroupFlow(groupName) {
   if (action === "cancel") return;
 
   const bookKey = getBookKeyFromUI();
-  const entries = runtime.currentGroupEntries.get(groupName) || collectMetas().filter((m) => m.group === groupName);
   if (action === "ungroup") {
-    for (const meta of entries) ungroupEntry(meta, groupName);
+    await ungroupBookEntries(bookKey, groupName);
   }
   if (action === "delete") {
-    for (const meta of entries) deleteEntry(meta);
+    await deleteBookEntriesInGroup(bookKey, groupName);
   }
   removeGroupFromSettings(bookKey, groupName);
   reloadWorldInfoPage(REBUILD_REASONS.MANAGE_APPLY);
@@ -310,7 +473,7 @@ async function manageGroupFlow(groupName, opts = {}) {
 
   while (true) {
     const bookKey = getBookKeyFromUI();
-    const allMetas = collectMetas();
+    const allMetas = await collectBookMetas(bookKey);
     const groupsNow = Array.from(new Set(allMetas.map((m) => m.group).filter(Boolean)));
     const orderedNow = normalizeGroupOrder(bookKey, groupsNow);
     const groupNamesForPicker = orderedNow.includes(currentGroup)
@@ -342,7 +505,7 @@ async function manageGroupFlow(groupName, opts = {}) {
 
     if (!result.applied) {
       if (creating) {
-        const stillGrouped = collectMetas().some((m) => m.group === currentGroup);
+        const stillGrouped = (await collectBookMetas(bookKey)).some((m) => m.group === currentGroup);
         if (!stillGrouped) {
           removeGroupFromSettings(bookKey, currentGroup);
           reloadWorldInfoPage(REBUILD_REASONS.MANAGE_APPLY);
@@ -351,19 +514,9 @@ async function manageGroupFlow(groupName, opts = {}) {
       return;
     }
 
-    const byUid = new Map(allMetas.map((m) => [String(m.uid), m]));
-    await runWithLALibBatch(async () => {
-      for (const uid of result.toAdd) {
-        const meta = byUid.get(String(uid));
-        if (meta) updateEntryGroup(meta, currentGroup);
-      }
-      for (const uid of result.toRemove) {
-        const meta = byUid.get(String(uid));
-        if (meta) ungroupEntry(meta, currentGroup);
-      }
-    });
+    await applyUidGroupChanges(bookKey, currentGroup, result.toAdd, result.toRemove);
 
-    const groupsAfterApply = Array.from(new Set(collectMetas().map((m) => m.group).filter(Boolean)));
+    const groupsAfterApply = Array.from(new Set((await collectBookMetas(bookKey)).map((m) => m.group).filter(Boolean)));
     normalizeGroupOrder(bookKey, groupsAfterApply);
     saveSettings();
     reloadWorldInfoPage(REBUILD_REASONS.MANAGE_APPLY);
@@ -373,7 +526,7 @@ async function manageGroupFlow(groupName, opts = {}) {
 
 async function openGroupEditorFlow() {
   const bookKey = getBookKeyFromUI();
-  const groups = Array.from(new Set(collectMetas().map((m) => m.group).filter(Boolean)));
+  const groups = Array.from(new Set((await collectBookMetas(bookKey)).map((m) => m.group).filter(Boolean)));
   const ordered = normalizeGroupOrder(bookKey, groups);
   if (ordered.length > 0) {
     await manageGroupFlow(ordered[0], { creating: false });
@@ -473,6 +626,11 @@ function rebuildGroupsUI(reasons = [REBUILD_REASONS.OBSERVER]) {
     const bookKey = getBookKeyFromUI();
     const metasAll = collectMetas();
     const groupNames = Array.from(new Set(metasAll.map((m) => m.group).filter(Boolean)));
+    const hasGroupUsage = groupNames.length > 0 || getBookSettings(bookKey).groupOrder.length > 0;
+    if (ensureGroupedPerPage(hasGroupUsage)) {
+      reloadWorldInfoPage(REBUILD_REASONS.PAGINATION);
+      return;
+    }
     const normalizedOrder = normalizeGroupOrder(bookKey, groupNames);
     const metasByGroup = new Map();
     for (const meta of metasAll) {
